@@ -41,11 +41,9 @@ async function syncLocalGlossary() {
 
   let imported = 0;
   for (const file of files) {
-    // Repo-relative path (`glossary/...`) so local and GitHub syncs share a key.
-    const relative = path
-      .relative(path.join(process.cwd(), "content"), file)
-      .split(path.sep)
-      .join("/");
+    // Repo-relative path (`content/glossary/...`) so local and GitHub syncs
+    // share one key with `glossaryPathFor()`.
+    const relative = path.relative(process.cwd(), file).split(path.sep).join("/");
     const content = await readFile(file, "utf8");
     try {
       await upsertGlossaryEntry({ path: relative, content, commitSha: null });

@@ -165,6 +165,11 @@ pnpm sync            # 本地术语库条目入库（仅 dev）
 pnpm sync --github   # 从 GitHub 拉取（Issue / 评论 / 术语库）
 ```
 
+> pnpm 11 不再读取 `package.json` 的 `pnpm` 字段，且默认 `strictDepBuilds`。依赖的安装脚本
+> （Prisma 的四个包、esbuild）已在 `pnpm-workspace.yaml` 的 `allowBuilds` 允许；新增带
+> postinstall 的依赖必须同步这一项，否则 CI 的 `pnpm install --frozen-lockfile` 会以
+> `ERR_PNPM_IGNORED_BUILDS` 失败。
+
 ### 部署相关
 
 ```bash

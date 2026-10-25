@@ -41,7 +41,9 @@ const FOOTER_LINKS = [
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN">
+    // Browser extensions (e.g. Dark Reader) inject attributes on <html> before
+    // hydration; suppress only that element's attribute diff.
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className="min-h-screen antialiased">
         <a
           href="#main"

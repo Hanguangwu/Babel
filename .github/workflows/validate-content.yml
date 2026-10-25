@@ -1,16 +1,16 @@
-name: validate-papers
+name: validate-content
 
 on:
   pull_request:
     paths:
-      - "content/papers/**"
+      - "content/glossary/**"
       - "schemas/**"
       - "scripts/validate-content.ts"
-      - "src/lib/content.ts"
+      - "src/lib/glossary.ts"
   push:
     branches: ["main"]
     paths:
-      - "content/papers/**"
+      - "content/glossary/**"
 
 jobs:
   validate:
@@ -25,7 +25,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Validate paper metadata and directory layout
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+      - name: Validate glossary entries
         run: pnpm validate
       - name: Typecheck
         run: pnpm typecheck

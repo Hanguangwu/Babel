@@ -1,0 +1,9 @@
+# pnpm 11 no longer reads the `pnpm` field in package.json, and it fails
+# installs (strictDepBuilds) when a dependency's build script has not been
+# approved. These four need their postinstall: Prisma generates the client and
+# downloads query engines, esbuild installs its native binary.
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  esbuild: true
+  prisma: true

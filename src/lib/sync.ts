@@ -1,4 +1,4 @@
-﻿import { prisma } from "./db";
+import { prisma } from "./db";
 import {
   fetchFile,
   fetchIssue,
@@ -13,6 +13,7 @@ import {
   upsertGlossaryEntry,
   upsertPostFromIssue,
 } from "./ingest";
+import { GLOSSARY_CONTENT_DIR } from "./glossary";
 
 export type SyncReport = {
   posts: number;
@@ -144,7 +145,10 @@ export async function syncGlossary(limit = 25): Promise<number> {
   const branch = process.env.GITHUB_CONTENT_BRANCH || "main";
   const tree = await fetchRepoTree(branch);
   const files = tree
-    .filter((entry) => entry.path.startsWith("glossary/") && entry.path.endsWith(".md"))
+    .filter(
+      (entry) =>
+        entry.path.startsWith(`${GLOSSARY_CONTENT_DIR}/`) && entry.path.endsWith(".md"),
+    )
     .slice(0, limit);
 
   let imported = 0;

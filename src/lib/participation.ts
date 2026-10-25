@@ -14,7 +14,7 @@ import {
 } from "./constants";
 import { computeHotScore } from "./ranking";
 import { enqueueGitHubJob } from "./ingest";
-import { slugifyTerm } from "./glossary";
+import { glossaryPathFor, slugifyTerm } from "./glossary";
 
 export type ActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? { data?: never } : { data: T }))
@@ -401,7 +401,7 @@ export async function acceptProposal(input: {
         domain: proposal.post.domain,
         rationaleMarkdown: proposal.rationaleMarkdown,
         postId: proposal.postId,
-        path: `glossary/${proposal.post.sourceLang}-${proposal.post.targetLang}/${slug}.md`,
+        path: glossaryPathFor(proposal.post),
         acceptedByLogin: input.user.login,
         acceptedAt: new Date(),
       },

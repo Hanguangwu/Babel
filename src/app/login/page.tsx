@@ -1,4 +1,4 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, GitBranch, ShieldCheck } from "lucide-react";
 import { demoLoginEnabled, githubConfigured } from "@/lib/auth";
@@ -10,6 +10,7 @@ export const metadata: Metadata = { title: "登录" };
 const ERRORS: Record<string, string> = {
   github_not_configured: "尚未配置 GitHub OAuth，请联系管理员。",
   demo_disabled: "演示登录已关闭，请使用 GitHub 登录。",
+  demo_login_failed: "演示登录失败：数据库不可用或迁移尚未应用，请查看服务端日志。",
   invite_required: "该 GitHub 账号不在邀请名单中。Babel 译词论坛目前采用邀请制，请联系管理员。",
   suspended: "该账号已被暂停，请联系管理员。",
   invalid_state: "登录状态校验失败，请重新发起登录。",

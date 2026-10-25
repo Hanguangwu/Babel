@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getCurrentUser, destroySession, signInAsDemo, type DemoRole, recordAudit } from "@/lib/auth";
+import {
+  getCurrentUser,
+  destroySession,
+  signInAsDemo,
+  demoLoginEnabled,
+  type DemoRole,
+  recordAudit,
+} from "@/lib/auth";
 import { hasRole } from "@/lib/constants";
 import {
   acceptProposal,
@@ -38,12 +45,17 @@ export type VoteResult = {
 /* -------------------------------------------------------------------------- */
 
 export async function loginDemoAction(formData: FormData) {
+  // Check the flag before touching the database so "disabled" and "database
+  // unavailable" are reported as different errors instead of one catch-all.
+  if (!demoLoginEnabled()) redirect("/login?error=demo_disabled");
+
   const kind = (formData.get("kind")?.toString() ?? "reader") as DemoRole;
   const next = formData.get("next")?.toString() || "/";
   try {
     await signInAsDemo(kind);
-  } catch {
-    redirect(`/login?error=${encodeURIComponent("演示登录未开启")}`);
+  } catch (error) {
+    console.error("[demo-login] failed", error);
+    redirect("/login?error=demo_login_failed");
   }
   redirect(safeNext(next));
 }

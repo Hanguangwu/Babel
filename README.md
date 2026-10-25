@@ -108,7 +108,7 @@ flowchart LR
 | 帖子 | Issue | 标签 `term-post`、`lang:en-zh`、`domain:legal`、`state:open\|resolved`；正文含 `<!-- babel:post:<postId> -->` |
 | 译法建议 | Issue Comment | 标记 `<!-- babel:proposal:<proposalId> -->`，正文按模板写“译文 / 理由 / 出处” |
 | 讨论回复 | Issue Comment | 标记 `<!-- babel:comment:<commentId> -->`，保留回复链 |
-| 采纳 | Issue label + 术语库 PR | 打 `translation:accepted` 标签，创建 `glossary/<src>-<tgt>/<slug>.md` 的 PR |
+| 采纳 | Issue label + 术语库 PR | 打 `translation:accepted` 标签，创建 `content/glossary/<src>-<tgt>/<slug>.md` 的 PR |
 | 术语库条目 | Markdown 文件 | 文件 = 不可变 slug；内容变更走新 PR，历史由 git 保存 |
 
 **事实来源的划分（实现以此为准）：**
@@ -133,6 +133,11 @@ pnpm install
 vercel link
 vercel env pull .env          # Prisma CLI 读取 .env；Next.js 也会加载它
 ```
+
+> pnpm 11 起不再读取 `package.json` 的 `pnpm` 字段，且默认 `strictDepBuilds`：
+> 依赖的安装脚本必须在 `pnpm-workspace.yaml` 的 `allowBuilds` 里显式允许，否则
+> `pnpm install --frozen-lockfile` 会以 `ERR_PNPM_IGNORED_BUILDS` 失败（GitHub Actions 上常见）。
+> 本仓库已允许 Prisma 的四个包与 esbuild；新增带 postinstall 的依赖时记得补一条。
 
 没有 Vercel 项目时，也可以在 Neon 控制台创建项目，把 Pooled 与 Direct 连接串写入 `.env`：
 
@@ -167,6 +172,24 @@ pnpm dev         # http://localhost:3000
 
 > 演示账号只用于本地体验，不写入真实仓库；生产与共享 Preview 禁止开启演示登录。
 
+### 3. 迁移失败时（P3009）
+
+`prisma migrate deploy` 报 `P3009`（`migrate found failed migrations...`）时，说明数据库里
+`_prisma_migrations` 记下了一条失败记录，此时新迁移不会再执行，页面会报
+`The table public.Post does not exist`。按顺序处理：
+
+```bash
+pnpm exec prisma migrate status                     # 确认哪条迁移失败
+# 修正 prisma/migrations/<name>/migration.sql 之后：
+pnpm exec prisma migrate resolve --rolled-back "20261026000000_init"
+pnpm db:deploy                                      # 重新应用
+```
+
+- 仅当失败迁移确实已整体回滚（DDL 未留下半成品）时才用 `--rolled-back`；如果库已经被手工修好，改用 `--applied`。
+- 不要用 `db:reset` 修这个问题：本地 `resolve` 一次即可，Vercel 构建里的 `migrate deploy` 随后会正常通过。
+- 迁移文件必须是纯 SQL；把 `prisma migrate diff` 的输出重定向进文件时要排除 stderr 上的 Prisma 升级提示，否则提示文本会变成非法 SQL 导致整条迁移回滚。
+- 迁移只会应用到 `DATABASE_URL_UNPOOLED` 指向的库；新建 Neon 分支后记得重新执行 `pnpm db:deploy`。
+
 ### 常用命令
 
 | 命令 | 作用 |
@@ -199,6 +222,7 @@ pnpm dev         # http://localhost:3000
 > 领域模型与路由已完成迁移（`Post` / `Proposal` / `PostVote` / `GlossaryEntry`，`/posts/[id]`）。
 > 尚未完成：Vercel Queues 消费者（当前用 `GitHubWriteJob` 表 + Cron/手动触发兜底）、缓存层、Blob 上传、`pg_trgm` 搜索。
 > 迁移文件已替换为单一 init：**已经应用过论文时代迁移的开发分支需要 `pnpm db:reset`**（无生产数据）。
+> 如果构建卡在 `P3009`（`migrate found failed migrations`），不要 reset 生产库，按「迁移失败时（P3009）」用 `migrate resolve --rolled-back` 处理后重新部署。
 
 ### 1. 准备托管资源
 
@@ -224,7 +248,7 @@ GITHUB_APP_ID=...
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n"
 GITHUB_INSTALLATION_ID=...
 GITHUB_WEBHOOK_SECRET=...
-GITHUB_CONTENT_REPO=owner/translation-terms
+GITHUB_CONTENT_REPO=Hanguangwu/Babel
 GITHUB_CONTENT_BRANCH=main
 GITHUB_REDIRECT_URI=https://your.site/api/v1/auth/github/callback
 
@@ -355,7 +379,7 @@ src/workflows/**        # 待建：历史回填与全量对账
 
 1. `MODERATOR` 或该领域 `maintainer` 采纳某条 `Proposal`（写 `AuditLog`）。
 2. `Proposal.status = ACCEPTED`，其余候选转 `SUPERSEDED`；`Post.resolution = RESOLVED`。
-3. 入队创建术语库 PR：`glossary/<src>-<tgt>/<term-slug>.md`，含术语、译文、领域、出处、讨论链接、`postId`。
+3. 入队创建术语库 PR：`content/glossary/<src>-<tgt>/<term-slug>.md`，含术语、译文、领域、出处、讨论链接、`postId`。
 4. 合并后 `push` Webhook 触发增量同步，写 `GlossaryEntry` 与 `commitSha`；页面按 tag 失效。
 5. 冲突（同一术语已存在条目）走“新 PR 修改旧条目”，不覆盖历史。
 
@@ -494,20 +518,20 @@ Subscribe to events：`Issues`、`Issue comment`、`Push`、`Installation`。
 
 1. 记录 **App ID**（数字，不是 Client ID）。
 2. **Generate a private key**，下载 `.pem`。
-3. **Install App**，只勾选内容仓库（如 `Hanguangwu/translation-terms`）。
+3. **Install App**，只勾选内容仓库（如 `Hanguangwu/Babel`）。
 4. 安装页地址 `https://github.com/settings/installations/12345678` 末尾数字即 `GITHUB_INSTALLATION_ID`。
 
 ```dotenv
-GITHUB_CONTENT_REPO=Hanguangwu/translation-terms
+GITHUB_CONTENT_REPO=Hanguangwu/Babel
 GITHUB_CONTENT_BRANCH=main
 ```
 
 ### 5. 内容仓库约定
 
 ```text
-.github/ISSUE_TEMPLATE/term-post.yml      # 帖子模板（站外发帖也用同一套字段）
-glossary/<src>-<tgt>/<slug>.md            # 采纳译法
-glossary/<src>-<tgt>/index.md             # 语言对索引（可选，自动生成）
+.github/ISSUE_TEMPLATE/term-post.yml          # 帖子模板（站外发帖也用同一套字段）
+content/glossary/<src>-<tgt>/<slug>.md        # 采纳译法（与站内 content/glossary 同构）
+content/glossary/<src>-<tgt>/index.md         # 语言对索引（可选，自动生成）
 ```
 
 Issue 标签（需要在仓库预建，站内按需创建）：
@@ -549,6 +573,12 @@ UPDATE "User" SET role = 'ADMIN' WHERE login = '你的GitHub用户名';
 | 评论 403 `Resource not accessible by integration` | Issues 权限不足 | 给 Issues Write 并重新批准安装 |
 | 闭帖后又被重开 | 同步覆盖了本地状态 | 状态以本地为准，修正同步逻辑 |
 | 私钥解析失败 | PEM 换行丢失 | 多行粘贴，或使用 `\n` |
+| 页面报 `The table public.Post does not exist` | 迁移未应用（常见于 `P3009` 失败记录） | 见「迁移失败时（P3009）」 |
+| 点演示账号后提示「演示登录未开启」 | `ALLOW_DEMO_LOGIN` 不是 `true`，或 `pnpm dev` 启动时没读到 `.env` | 设为 `true` 后重启 `pnpm dev` |
+| 点演示账号后提示「演示登录失败：数据库不可用」 | 数据库连不上或迁移未应用 | 先 `pnpm db:deploy`，再检查 `DATABASE_URL` |
+| 浏览器控制台 `A tree hydrated but some attributes...`，差异里出现 `data-darkreader-*` | 浏览器扩展（Dark Reader 等）在 hydration 前改写了 `<html>` / `<svg>` | 对 localhost 关闭该扩展，或用无痕窗口；不是应用代码问题 |
+| CI 里 `ERR_PNPM_IGNORED_BUILDS ... Run "pnpm approve-builds"` | pnpm 11 默认不允许依赖跑安装脚本 | 把包名加进 `pnpm-workspace.yaml` 的 `allowBuilds`（仓库已配置） |
+| Windows 下 `pnpm build` 报 `EPERM ... query_engine-windows.dll.node` | `pnpm dev` 正在运行，Windows 锁住了 Prisma 引擎 DLL | 先停掉 dev 再构建；Vercel/Linux 不受影响 |
 
 ### 9. 安全检查
 

@@ -20,5 +20,8 @@ prisma/*.db-journal
 
 # misc
 install.log
+build.log
+typecheck.log
+*.log
 *.tsbuildinfo
 .DS_Store

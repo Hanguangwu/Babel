@@ -29,6 +29,21 @@ export function slugifyTerm(term: string): string {
   return ascii || `term-${Date.now().toString(36)}`;
 }
 
+/**
+ * Directory inside the content repository that mirrors the local
+ * `content/glossary/` tree. Accepted translations live at
+ * `<dir>/<src>-<tgt>/<slug>.md`.
+ */
+export const GLOSSARY_CONTENT_DIR = "content/glossary";
+
+export function glossaryPathFor(input: {
+  term: string;
+  sourceLang: string;
+  targetLang: string;
+}): string {
+  return `${GLOSSARY_CONTENT_DIR}/${input.sourceLang}-${input.targetLang}/${slugifyTerm(input.term)}.md`;
+}
+
 export type ParsedGlossaryFile = {
   frontmatter: GlossaryFrontmatter;
   body: string;
@@ -68,7 +83,5 @@ export function renderGlossaryFile(input: {
 }
 
 export function glossaryRepoPath(frontmatter: GlossaryFrontmatter): string {
-  return `glossary/${frontmatter.sourceLang}-${frontmatter.targetLang}/${slugifyTerm(
-    frontmatter.term,
-  )}.md`;
+  return glossaryPathFor(frontmatter);
 }
