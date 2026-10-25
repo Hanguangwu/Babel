@@ -1,0 +1,364 @@
+// Babel 译词论坛 data model.
+//
+// GitHub Issues are the system of record for post bodies, comments and issue
+// labels. This database is the read-optimised mirror plus every piece of state
+// the website owns: votes, moderation status, accepted translations, reports,
+// roles and the audit trail.
+//
+// PostgreSQL (Neon in production and development branches). Enums are stored as
+// string columns validated in `src/lib/constants.ts` so that adding a status
+// does not require a migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Direct (non-pooled) connection used by `prisma migrate` on Neon.
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  // Immutable GitHub identity. `login` can change, this cannot.
+  githubUserId String   @unique
+  login        String   @unique
+  name         String?
+  avatarUrl    String?
+  email        String?
+  bio          String?
+  affiliation  String?
+  // USER | CONTRIBUTOR | MODERATOR | ADMIN
+  role         String   @default("USER")
+  // ACTIVE | SUSPENDED
+  status       String   @default("ACTIVE")
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  lastLoginAt  DateTime?
+
+  posts         Post[]         @relation("PostAuthor")
+  revisions     PostRevision[]
+  proposals     Proposal[]
+  comments      Comment[]
+  postVotes     PostVote[]
+  proposalVotes ProposalVote[]
+  reports       Report[]       @relation("Reporter")
+  resolved      Report[]       @relation("Resolver")
+  auditLogs     AuditLog[]
+  invitesSent   Invite[]       @relation("InviteCreator")
+  invitesUsed   Invite[]       @relation("InviteConsumer")
+
+  @@index([role])
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  email       String?
+  note        String?
+  createdById String
+  usedById    String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  createdBy User  @relation("InviteCreator", fields: [createdById], references: [id])
+  usedBy    User? @relation("InviteConsumer", fields: [usedById], references: [id])
+
+  @@index([email])
+}
+
+/// A terminology question. One post maps to one GitHub issue.
+model Post {
+  id String @id @default(cuid())
+  // Term under discussion, exactly as it appears in the source text.
+  term       String
+  title      String
+  sourceLang String
+  targetLang String
+  // Slug from DOMAINS in `src/lib/constants.ts`.
+  domain String
+  // Usage context: sentence, source, register, constraints.
+  contextMarkdown String
+  // Optional further explanation, mirrors the issue body minus the context.
+  bodyMarkdown    String   @default("")
+  // PENDING_REVIEW | PUBLISHED | HIDDEN | REJECTED
+  status     String @default("PENDING_REVIEW")
+  // OPEN | RESOLVED
+  resolution String @default("OPEN")
+
+  authorId    String
+  authorLogin String
+
+  githubIssueNumber Int?    @unique
+  githubIssueUrl    String?
+
+  // Denormalised counters kept in sync with the vote/comment tables.
+  upvotes     Int @default(0)
+  downvotes   Int @default(0)
+  score       Int @default(0)
+  hotScore    Int @default(0)
+  commentCount  Int @default(0)
+  proposalCount Int @default(0)
+  viewCount     Int @default(0)
+
+  publishedAt    DateTime?
+  lastActivityAt DateTime @default(now())
+  syncedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  author    User           @relation("PostAuthor", fields: [authorId], references: [id])
+  revisions PostRevision[]
+  proposals Proposal[]
+  comments  Comment[]
+  votes     PostVote[]
+  reports   Report[]
+  glossary  GlossaryEntry?
+
+  @@index([status, hotScore])
+  @@index([status, lastActivityAt])
+  @@index([status, publishedAt])
+  @@index([domain, status])
+  @@index([sourceLang, targetLang, status])
+  @@index([authorId])
+}
+
+/// Body snapshot for a post, either authored on the site or pulled from GitHub.
+model PostRevision {
+  id           String   @id @default(cuid())
+  postId       String
+  bodyMarkdown String
+  // SITE | GITHUB
+  source       String   @default("SITE")
+  authorId     String?
+  authorLogin  String?
+  createdAt    DateTime @default(now())
+
+  post   Post  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([postId, createdAt])
+}
+
+/// A structured candidate translation inside a post.
+model Proposal {
+  id String @id @default(cuid())
+  postId String
+  // Null when the proposal came from GitHub and the author never logged in.
+  authorId        String?
+  authorLogin     String
+  authorName      String?
+  authorAvatarUrl String?
+  translation     String
+  rationaleMarkdown String
+  sourceUrl       String?
+  // PROPOSED | ACCEPTED | REJECTED | SUPERSEDED
+  status          String @default("PROPOSED")
+  // Mirrored issue comment id, null until the queue succeeds.
+  githubCommentId String? @unique
+
+  upvotes   Int @default(0)
+  downvotes Int @default(0)
+  score     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post     Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author   User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  votes    ProposalVote[]
+  comments Comment[]
+
+  @@unique([postId, translation])
+  @@index([postId, score])
+}
+
+model Comment {
+  id String @id @default(cuid())
+  postId String
+  // Set when the comment replies inside a proposal thread.
+  proposalId      String?
+  // Null for top-level comments.
+  parentId        String?
+  githubCommentId String? @unique
+  authorGithubId  String?
+  authorLogin     String
+  authorName      String?
+  authorAvatarUrl String?
+  bodySnapshot    String
+  // VISIBLE | HIDDEN | DELETED
+  status          String @default("VISIBLE")
+  localAuthorId   String?
+  isPostAuthor    Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+  syncedAt        DateTime @default(now())
+
+  post     Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  proposal Proposal? @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  Comment[] @relation("CommentReplies")
+  author   User?     @relation(fields: [localAuthorId], references: [id], onDelete: SetNull)
+
+  @@index([postId, createdAt])
+  @@index([proposalId, createdAt])
+  @@index([parentId])
+}
+
+model PostVote {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  // 1 = upvote, -1 = downvote
+  value     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId, value])
+}
+
+model ProposalVote {
+  id         String   @id @default(cuid())
+  proposalId String
+  userId     String
+  value      Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, userId])
+  @@index([proposalId, value])
+}
+
+/// An accepted translation, mirrored from `glossary/<src>-<tgt>/<slug>.md`.
+model GlossaryEntry {
+  id String @id @default(cuid())
+  slug       String
+  sourceLang String
+  targetLang String
+  domain     String
+  term       String
+  translation String
+  rationaleMarkdown String @default("")
+  // Post that produced this entry, if any.
+  postId String? @unique
+  // Repo path and commit that introduced the current file content.
+  path      String
+  commitSha String?
+  acceptedByLogin String?
+  acceptedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  post Post? @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceLang, targetLang, slug])
+  @@index([term])
+  @@index([domain])
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  postId     String?
+  commentId  String?
+  reporterId String?
+  reason     String
+  detail     String?
+  // OPEN | RESOLVED | DISMISSED
+  status     String   @default("OPEN")
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+  resolvedById String?
+  resolution   String?
+
+  post       Post? @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reporter   User? @relation("Reporter", fields: [reporterId], references: [id])
+  resolvedBy User? @relation("Resolver", fields: [resolvedById], references: [id])
+
+  @@index([status, createdAt])
+}
+
+model SyncEvent {
+  id          String   @id @default(cuid())
+  // GitHub delivery id, or a locally generated id for manual/seed syncs.
+  deliveryId  String   @unique
+  eventName   String
+  repoId      String?
+  payloadHash String
+  // PENDING | PROCESSED | FAILED | DUPLICATE
+  status      String   @default("PENDING")
+  retryCount  Int      @default(0)
+  error       String?
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  @@index([status, receivedAt])
+}
+
+/// Outbound GitHub work (issue creation, comment mirroring, glossary PR).
+model GitHubWriteJob {
+  id             String   @id @default(cuid())
+  // ISSUE_CREATE | COMMENT_CREATE | PROPOSAL_CREATE | GLOSSARY_PR
+  kind           String
+  postId         String?
+  commentId      String?
+  proposalId     String?
+  idempotencyKey String   @unique
+  // PENDING | PROCESSING | DONE | DEAD
+  status         String   @default("PENDING")
+  attempts       Int      @default(0)
+  lastError      String?
+  runAfter       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, runAfter])
+  @@index([postId])
+}
+
+/// Incremental sync cursors (issue comment `since` values, last pushed head).
+model SyncCursor {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  pathname   String   @unique
+  url        String
+  sha256     String?
+  size       Int?
+  mime       String?
+  // PUBLIC | PRIVATE
+  visibility String   @default("PUBLIC")
+  uploadedById String?
+  createdAt  DateTime @default(now())
+
+  @@index([uploadedById])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorLogin String?
+  action     String
+  targetType String
+  targetId   String?
+  detailJson String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+}

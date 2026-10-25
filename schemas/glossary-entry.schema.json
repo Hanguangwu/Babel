@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://babel.example/schemas/glossary-entry.schema.json",
+  "title": "Babel 术语库条目",
+  "description": "content/glossary/<sourceLang>-<targetLang>/<slug>.md 的 YAML frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["term", "translation", "sourceLang", "targetLang", "domain"],
+  "properties": {
+    "term": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "源语言术语原文"
+    },
+    "translation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "采纳的目标语言译法"
+    },
+    "sourceLang": {
+      "type": "string",
+      "description": "BCP-47 源语言代码，必须在 src/lib/constants.ts 的 LANGUAGES 中",
+      "examples": ["en", "ja", "zh-CN"]
+    },
+    "targetLang": {
+      "type": "string",
+      "description": "BCP-47 目标语言代码，必须在 LANGUAGES 中",
+      "examples": ["zh-CN", "en"]
+    },
+    "domain": {
+      "type": "string",
+      "description": "领域 slug，必须在 DOMAINS 中",
+      "examples": ["legal", "medical", "cs", "literature"]
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 5000,
+      "description": "采纳理由或使用说明"
+    },
+    "postId": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "产生该条目的帖子 id"
+    },
+    "acceptedBy": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "采纳该译法的版主 GitHub 用户名"
+    },
+    "acceptedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "采纳时间（ISO 8601）"
+    }
+  }
+}
